@@ -88,6 +88,6 @@ function start(port) {
 }
 
 console.log('');
-console.log('  corgihere');
+console.log('  Corgi Site');
 start(8080);
 start(80);

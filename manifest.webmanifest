@@ -1,6 +1,6 @@
 {
-  "name": "corgihere",
-  "short_name": "corgihere",
+  "name": "Corgi Site",
+  "short_name": "Corgi Site",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#ffffff",
