@@ -88,6 +88,6 @@ function start(port) {
 }
 
 console.log('');
-console.log('  corgihere 行事曆');
+console.log('  corgihere');
 start(8080);
 start(80);
