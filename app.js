@@ -494,7 +494,6 @@ function renderHero(events) {
   const hero = document.getElementById('hero');
   if (!focus) {
     hero.innerHTML = '<div class="next"><p class="next-kicker">下次</p><p class="next-num">完成</p><p class="next-date">沒有未完成的項目</p></div>';
-    document.title = 'corgihere';
     return;
   }
 
@@ -511,10 +510,6 @@ function renderHero(events) {
   const dateLine = shortDate(focus.date) + ' · 週' + '日一二三四五六'[parseISO(focus.date).getDay()] + (focus.items.length > 1 ? ' · ' + focus.items.length + ' 項' : '');
 
   hero.innerHTML = '<div class="next"><p class="next-kicker">' + kicker + '</p><p class="next-num">' + esc(big) + (unit ? '<span>' + unit + '</span>' : '') + '</p><p class="next-date">' + esc(dateLine) + '</p><ul>' + items + '</ul></div>';
-
-  const when = days < 0 ? '逾期 ' + -days + ' 天' : days === 0 ? '今天' : days === 1 ? '明天' : days + ' 天';
-  const name = focus.items.length > 1 ? focus.items.length + ' 項' : labelOf(focus.items[0]);
-  document.title = when + ' · ' + name + ' — corgihere';
 }
 
 function renderRush(events) {
