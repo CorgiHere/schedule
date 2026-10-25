@@ -1,6 +1,17 @@
 'use strict';
 
 const KEY = 'corgihere.schedule.v1';
+const SYNC_URL = 'https://crudcrud.com/api/0e9f2b7b6bf94d66a5ce52744b6fa8fd/state/6addc21c1cbdcf03e8ead5a6';
+
+function stamp() {
+  return Math.floor(Date.now() / 1000);
+}
+
+function safeStamp(value) {
+  const n = typeof value === 'number' ? value : 0;
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n > 1e10 ? Math.floor(n / 1000) : Math.floor(n);
+}
 
 const COURSES = [
   { id: 'cp', code: 'CP', name: 'Competitive Programming I', color: '#1d4ed8' },
@@ -60,6 +71,10 @@ function tagOf(kind) {
 const NOTE_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 
 const state = loadState();
+let applyingRemote = false;
+let pushTimer = 0;
+let pushing = false;
+let pushAgain = false;
 const openNotes = new Set(Object.keys(state.notes).filter((id) => state.notes[id]));
 let view = 'upcoming';
 let courseFilter = '';
@@ -74,7 +89,7 @@ let calYear = calNow.getFullYear();
 let calMonth = calNow.getMonth();
 
 function loadState() {
-  const empty = { done: {}, notes: {}, custom: [], added: [], removed: [], colors: {}, profiles: {}, edits: {}, theme: null, hideDone: false };
+  const empty = { done: {}, notes: {}, custom: [], added: [], removed: [], colors: {}, profiles: {}, edits: {}, theme: null, hideDone: false, updatedAt: 0 };
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || '{}');
     const removed = sanitizeRemoved(raw.removed);
@@ -93,6 +108,7 @@ function loadState() {
       edits: sanitizeEdits(raw.edits, ids),
       theme: raw.theme === 'dark' || raw.theme === 'light' ? raw.theme : null,
       hideDone: !!raw.hideDone,
+      updatedAt: safeStamp(raw.updatedAt),
     };
   } catch (err) {
     return empty;
@@ -100,7 +116,171 @@ function loadState() {
 }
 
 function saveState() {
+  state.updatedAt = stamp();
+  writeState();
+  schedulePush();
+}
+
+function writeState() {
   localStorage.setItem(KEY, JSON.stringify(state));
+}
+
+function snapshotFrom(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const removed = sanitizeRemoved(source.removed);
+  const added = sanitizeAdded(source.added);
+  const ids = courseIdSet(removed, added);
+  return {
+    done: source.done && typeof source.done === 'object' ? source.done : {},
+    notes: source.notes && typeof source.notes === 'object' ? source.notes : {},
+    custom: Array.isArray(source.custom) ? sanitizeCustom(source.custom, ids) : [],
+    added,
+    removed,
+    colors: sanitizeColors(source.colors),
+    profiles: sanitizeProfiles(source.profiles),
+    edits: sanitizeEdits(source.edits, ids),
+    theme: source.theme === 'dark' || source.theme === 'light' ? source.theme : null,
+    hideDone: !!source.hideDone,
+    updatedAt: safeStamp(source.updatedAt),
+  };
+}
+
+function stateWeight(snapshot) {
+  return Object.keys(snapshot.done).length
+    + Object.keys(snapshot.notes).length
+    + snapshot.custom.length
+    + snapshot.added.length
+    + snapshot.removed.length
+    + Object.keys(snapshot.edits).length
+    + Object.keys(snapshot.profiles).length
+    + Object.keys(snapshot.colors).length;
+}
+
+function payloadFromState() {
+  return {
+    done: state.done,
+    notes: state.notes,
+    custom: state.custom,
+    added: state.added,
+    removed: state.removed,
+    colors: state.colors,
+    profiles: state.profiles,
+    edits: state.edits,
+    theme: state.theme,
+    hideDone: state.hideDone,
+    updatedAt: state.updatedAt || 0,
+  };
+}
+
+function setSyncStatus(text) {
+  const el = document.getElementById('syncStatus');
+  if (el) el.textContent = text;
+}
+
+function applyRemote(snapshot) {
+  applyingRemote = true;
+  state.done = snapshot.done;
+  state.notes = snapshot.notes;
+  state.custom = snapshot.custom;
+  state.added = snapshot.added;
+  state.removed = snapshot.removed;
+  state.colors = snapshot.colors;
+  state.profiles = snapshot.profiles;
+  state.edits = snapshot.edits;
+  state.theme = snapshot.theme;
+  state.hideDone = snapshot.hideDone;
+  state.updatedAt = snapshot.updatedAt;
+  writeState();
+  applyTheme();
+  const hideDone = document.getElementById('hideDone');
+  if (hideDone) hideDone.checked = state.hideDone;
+  openNotes.clear();
+  Object.keys(state.notes).forEach((id) => { if (state.notes[id]) openNotes.add(id); });
+  render();
+  applyingRemote = false;
+  setSyncStatus('已和其他裝置同步');
+}
+
+function schedulePush() {
+  if (applyingRemote) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(pushState, 800);
+}
+
+async function pushState() {
+  if (applyingRemote) return;
+  if (pushing) {
+    pushAgain = true;
+    return;
+  }
+  pushing = true;
+  setSyncStatus('同步中');
+  try {
+    const fetched = await fetch(SYNC_URL);
+    if (fetched.ok) {
+      const remote = snapshotFrom(await fetched.json());
+      const remoteNewer = remote.updatedAt > (state.updatedAt || 0);
+      const localIsLegacy = !state.updatedAt && stateWeight(state) > stateWeight(remote);
+      if (remoteNewer && !localIsLegacy) {
+        applyRemote(remote);
+        return;
+      }
+    }
+    if (!state.updatedAt) state.updatedAt = stamp();
+    const res = await fetch(SYNC_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payloadFromState()),
+    });
+    if (!res.ok) throw new Error('status');
+    writeState();
+    setSyncStatus('已和其他裝置同步');
+  } catch (err) {
+    setSyncStatus('這台已存好，和其他裝置還沒連上');
+  } finally {
+    pushing = false;
+    if (pushAgain) {
+      pushAgain = false;
+      schedulePush();
+    }
+  }
+}
+
+async function pullAndMerge() {
+  if (applyingRemote) return;
+  setSyncStatus('正在和其他裝置對齊');
+  let remote;
+  try {
+    const res = await fetch(SYNC_URL);
+    if (!res.ok) throw new Error('status');
+    remote = snapshotFrom(await res.json());
+  } catch (err) {
+    setSyncStatus('這台已存好，和其他裝置還沒連上');
+    return;
+  }
+  const localAt = state.updatedAt || 0;
+  const remoteAt = remote.updatedAt || 0;
+  const localWeight = stateWeight(state);
+  const remoteWeight = stateWeight(remote);
+  if (!localAt && localWeight > remoteWeight) {
+    state.updatedAt = stamp();
+    writeState();
+    pushState();
+    return;
+  }
+  if (remoteAt > localAt) {
+    applyRemote(remote);
+    return;
+  }
+  if (localAt > remoteAt || (localWeight && !remoteWeight)) {
+    if (!state.updatedAt) {
+      state.updatedAt = stamp();
+      writeState();
+    }
+    pushState();
+    return;
+  }
+  setSyncStatus(localWeight || remoteWeight ? '已和其他裝置同步' : '改完會同步到其他裝置');
 }
 
 function validColor(value) {
@@ -1388,8 +1568,13 @@ function init() {
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (!state.theme) applyTheme();
   });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    render();
+    pullAndMerge();
+  });
   setInterval(() => render(), 60000);
+  pullAndMerge();
 }
 
 init();

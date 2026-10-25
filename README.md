@@ -1,6 +1,6 @@
 # corgihere 行事曆
 
-靜態頁面。完成、備註和自訂事項存在開啟它的那一個瀏覽器。
+靜態頁面。完成、備註和修改會在手機和電腦之間同步。
 
 公開網址：https://corgihere.github.io/schedule/
 
