@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>corgihere · 行事曆</title>
+  <meta name="description" content="corgihere 的課程考試與繳交行事曆。" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="#ffffff" id="themeColor" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="corgihere" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script>
+    try {
+      var saved = JSON.parse(localStorage.getItem('corgihere.schedule.v1') || '{}');
+      if (saved.theme === 'dark') document.documentElement.dataset.theme = 'dark';
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <a class="skip" href="#list">跳到行程</a>
+  <div class="frame">
+  <header class="topbar">
+    <a class="brand" href="#upcoming"><span class="mark" aria-hidden="true"></span>corgihere</a>
+    <span class="today" id="todayLine"></span>
+    <div class="views" role="group" aria-label="檢視">
+      <button type="button" class="view-btn" data-view="upcoming" aria-pressed="true">行程</button>
+      <button type="button" class="view-btn" data-view="courses">課程</button>
+    </div>
+    <label class="search">
+      <span class="sr-only">搜尋</span>
+      <input id="q" type="search" placeholder="搜尋" autocomplete="off" />
+    </label>
+    <label class="check">
+      <input type="checkbox" id="hideDone" />
+      隱藏已完成
+    </label>
+    <button type="button" class="btn" id="themeBtn">深色</button>
+    <button type="button" class="btn primary" id="addBtn" title="新增事項（N）">新增</button>
+  </header>
+
+  <div class="shell">
+    <aside class="side">
+      <div class="side-next">
+      <section id="hero" aria-label="下次"></section>
+      <section class="season" aria-label="進度">
+        <div class="season-top">
+          <span id="seasonNote"></span>
+          <span>10/25–12/26</span>
+        </div>
+        <div class="track" aria-hidden="true"><span id="seasonDot"></span></div>
+      </section>
+      <div id="rush"></div>
+      </div>
+      <div class="side-courses">
+      <p class="side-label">課程</p>
+      <div class="chips" id="chips"></div>
+      <form id="courseAdd" class="course-add">
+        <div class="course-add-row">
+          <input type="color" id="courseColor" name="color" value="#2563eb" aria-label="新課程顏色" />
+          <input id="courseCode" name="code" type="text" maxlength="12" placeholder="縮寫" autocomplete="off" required />
+          <button type="submit" class="btn">新增</button>
+        </div>
+        <input id="courseName" name="name" type="text" maxlength="80" placeholder="全名" autocomplete="off" />
+      </form>
+      <div id="courseRestore"></div>
+      </div>
+    </aside>
+
+    <main class="content" id="top">
+      <p class="print-head">corgihere 行事曆</p>
+      <div class="list-head">
+        <p id="stats"></p>
+        <div id="filterNote" hidden><span id="filterText">篩選中</span> <button type="button" class="mini" id="clearBtn">清除</button></div>
+      </div>
+      <div id="list" tabindex="-1"></div>
+      <footer class="foot">
+        <div>
+          <p>完成狀態、備註和自訂事項存在這個瀏覽器。</p>
+          <p id="where"></p>
+        </div>
+        <div class="foot-actions">
+          <button type="button" class="btn" id="printBtn">列印</button>
+          <button type="button" class="btn" id="exportBtn">匯出</button>
+          <button type="button" class="btn" id="importBtn">匯入</button>
+          <input type="file" id="importFile" accept="application/json,.json" hidden />
+        </div>
+      </footer>
+    </main>
+    <aside class="cal" aria-label="月曆">
+      <div id="calendar"></div>
+    </aside>
+  </div>
+  </div>
+
+  <dialog id="composer" aria-labelledby="composerTitle">
+    <form id="composerForm" method="dialog">
+      <div class="dialog-h">
+        <h2 id="composerTitle">新增事項</h2>
+        <button type="button" class="mini" id="closeComposer">關閉</button>
+      </div>
+      <label>
+        <span>事項</span>
+        <input id="f-title" name="title" required maxlength="80" placeholder="例如：DS 作業" autocomplete="off" />
+      </label>
+      <label>
+        <span>日期</span>
+        <input id="f-date" name="date" type="date" required />
+      </label>
+      <div class="tag-field">
+        <span class="field-label">標籤</span>
+        <input type="hidden" name="kind" id="f-kind" value="其他" />
+        <div class="tag-pick" id="tagPick">
+          <button type="button" data-tag="考試">考試</button>
+          <button type="button" data-tag="小考">小考</button>
+          <button type="button" data-tag="作業">作業</button>
+          <button type="button" data-tag="報告">報告</button>
+          <button type="button" data-tag="專題">專題</button>
+          <button type="button" data-tag="讀書">讀書</button>
+          <button type="button" data-tag="其他" aria-pressed="true">其他</button>
+        </div>
+      </div>
+      <label>
+        <span>課程</span>
+        <select id="f-course" name="course"></select>
+      </label>
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="cancelComposer">取消</button>
+        <button type="submit" class="btn primary" id="composerSubmit">加入</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="courseDialog" aria-labelledby="courseDialogTitle">
+    <form id="courseForm" method="dialog">
+      <div class="dialog-h">
+        <h2 id="courseDialogTitle">修改課程</h2>
+        <button type="button" class="mini" id="closeCourse">關閉</button>
+      </div>
+      <input type="hidden" id="c-id" name="id" />
+      <label>
+        <span>縮寫</span>
+        <input id="c-code" name="code" required maxlength="12" autocomplete="off" />
+      </label>
+      <label>
+        <span>全名</span>
+        <input id="c-name" name="name" maxlength="80" autocomplete="off" />
+      </label>
+      <label>
+        <span>顏色</span>
+        <input id="c-color" name="color" type="color" value="#2563eb" />
+      </label>
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="cancelCourse">取消</button>
+        <button type="submit" class="btn primary">儲存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status"></div>
+  <script src="app.js"></script>
+</body>
+</html>
