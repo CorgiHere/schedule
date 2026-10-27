@@ -849,9 +849,9 @@ dialog label span,
   .shell { display: flex; flex-direction: column; align-items: stretch; }
   .side { display: contents; }
   .side-next, .side-courses, .cal, .content { width: 100%; min-width: 0; }
-  .side-next { order: 1; }
-  .content { order: 2; }
-  .cal { order: 3; border-bottom: 1px solid var(--line); }
+  .cal { order: 1; border-bottom: 1px solid var(--line); }
+  .side-next { order: 2; }
+  .content { order: 3; }
   .side-courses { order: 4; }
   .side-next, .side-courses {
     padding: 16px;

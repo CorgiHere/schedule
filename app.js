@@ -1,7 +1,7 @@
 'use strict';
 
 const KEY = 'corgihere.schedule.v1';
-const SYNC_URL = 'https://crudcrud.com/api/0e9f2b7b6bf94d66a5ce52744b6fa8fd/state/6addc21c1cbdcf03e8ead5a6';
+const SYNC_URL = 'https://api.restful-api.dev/objects/ff808181a09d98f701a17ac0767e1d47';
 
 function stamp() {
   return Math.floor(Date.now() / 1000);
@@ -75,6 +75,7 @@ let applyingRemote = false;
 let pushTimer = 0;
 let pushing = false;
 let pushAgain = false;
+let lastPushedAt = 0;
 const openNotes = new Set(Object.keys(state.notes).filter((id) => state.notes[id]));
 let view = 'upcoming';
 let courseFilter = '';
@@ -177,6 +178,28 @@ function setSyncStatus(text) {
   if (el) el.textContent = text;
 }
 
+function remoteSnapshot(raw) {
+  if (!raw || !raw.data || typeof raw.data !== 'object') return snapshotFrom({});
+  return snapshotFrom(raw.data);
+}
+
+async function readRemote() {
+  const res = await fetch(SYNC_URL, { cache: 'no-store' });
+  if (!res.ok) throw new Error('status');
+  return remoteSnapshot(await res.json());
+}
+
+async function writeRemote() {
+  const res = await fetch(SYNC_URL, {
+    method: 'PUT',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'corgi-schedule', data: payloadFromState() }),
+  });
+  if (!res.ok) throw new Error('status');
+  lastPushedAt = state.updatedAt || 0;
+}
+
 function applyRemote(snapshot) {
   applyingRemote = true;
   state.done = snapshot.done;
@@ -216,23 +239,15 @@ async function pushState() {
   pushing = true;
   setSyncStatus('同步中');
   try {
-    const fetched = await fetch(SYNC_URL);
-    if (fetched.ok) {
-      const remote = snapshotFrom(await fetched.json());
-      const remoteNewer = remote.updatedAt > (state.updatedAt || 0);
-      const localIsLegacy = !state.updatedAt && stateWeight(state) > stateWeight(remote);
-      if (remoteNewer && !localIsLegacy) {
-        applyRemote(remote);
-        return;
-      }
+    const remote = await readRemote();
+    const remoteNewer = remote.updatedAt > (state.updatedAt || 0);
+    const localIsLegacy = !state.updatedAt && stateWeight(state) > stateWeight(remote);
+    if (remoteNewer && !localIsLegacy) {
+      applyRemote(remote);
+      return;
     }
     if (!state.updatedAt) state.updatedAt = stamp();
-    const res = await fetch(SYNC_URL, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payloadFromState()),
-    });
-    if (!res.ok) throw new Error('status');
+    await writeRemote();
     writeState();
     setSyncStatus('已和其他裝置同步');
   } catch (err) {
@@ -247,13 +262,10 @@ async function pushState() {
 }
 
 async function pullAndMerge() {
-  if (applyingRemote) return;
-  setSyncStatus('正在和其他裝置對齊');
+  if (applyingRemote || pushing) return;
   let remote;
   try {
-    const res = await fetch(SYNC_URL);
-    if (!res.ok) throw new Error('status');
-    remote = snapshotFrom(await res.json());
+    remote = await readRemote();
   } catch (err) {
     setSyncStatus('這台已存好，和其他裝置還沒連上');
     return;
@@ -277,7 +289,8 @@ async function pullAndMerge() {
       state.updatedAt = stamp();
       writeState();
     }
-    pushState();
+    if (lastPushedAt !== state.updatedAt) pushState();
+    else setSyncStatus('已和其他裝置同步');
     return;
   }
   setSyncStatus(localWeight || remoteWeight ? '已和其他裝置同步' : '改完會同步到其他裝置');
@@ -1574,6 +1587,7 @@ function init() {
     pullAndMerge();
   });
   setInterval(() => render(), 60000);
+  setInterval(() => { if (!document.hidden) pullAndMerge(); }, 20000);
   pullAndMerge();
 }
 
