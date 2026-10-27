@@ -1,7 +1,9 @@
 'use strict';
 
 const KEY = 'corgihere.schedule.v1';
+const SYNC_META = 'corgihere.schedule.meta';
 const SYNC_URL = 'https://crudcrud.com/api/4e3c069004d74b328917de3bf884bf9b/state/6adff68b419cd403e8b1dba4';
+const BUILD = '5';
 
 function stamp() {
   return Math.floor(Date.now() / 1000);
@@ -182,6 +184,34 @@ function setSyncStatus(text) {
   if (el) el.textContent = text;
 }
 
+function syncMeta() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SYNC_META) || '{}');
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch (err) {
+    return {};
+  }
+}
+
+function markSynced() {
+  localStorage.setItem(SYNC_META, JSON.stringify({ url: SYNC_URL, at: state.updatedAt || 0 }));
+}
+
+async function watchVersion() {
+  try {
+    const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.build || data.build === BUILD) {
+      sessionStorage.removeItem('reloading');
+      return;
+    }
+    if (sessionStorage.getItem('reloading')) return;
+    sessionStorage.setItem('reloading', '1');
+    location.reload();
+  } catch (err) {}
+}
+
 async function readRemote() {
   const res = await fetch(SYNC_URL, { cache: 'no-store' });
   if (!res.ok) throw new Error('status');
@@ -197,6 +227,7 @@ async function writeRemote() {
   });
   if (!res.ok) throw new Error('status');
   lastPushedAt = state.updatedAt || 0;
+  markSynced();
 }
 
 function applyRemote(snapshot) {
@@ -221,6 +252,7 @@ function applyRemote(snapshot) {
   Object.keys(state.notes).forEach((id) => { if (state.notes[id]) openNotes.add(id); });
   render();
   applyingRemote = false;
+  markSynced();
   setSyncStatus('已和其他裝置同步');
 }
 
@@ -274,6 +306,10 @@ async function pullAndMerge() {
   const remoteAt = remote.updatedAt || 0;
   const localWeight = stateWeight(state);
   const remoteWeight = stateWeight(remote);
+  if (syncMeta().url !== SYNC_URL && remoteAt) {
+    applyRemote(remote);
+    return;
+  }
   if (!localAt && localWeight > remoteWeight) {
     state.updatedAt = stamp();
     writeState();
@@ -1456,8 +1492,15 @@ function saveCourse() {
 
 function initWhere() {
   const where = document.getElementById('where');
-  if (location.protocol.startsWith('http')) where.textContent = '現在開的是 ' + location.origin;
-  else where.textContent = '這是直接開啟的檔案。';
+  if (location.origin === 'https://corgihere.ddns.net') {
+    where.textContent = '現在開的是 https://corgihere.ddns.net';
+    return;
+  }
+  if (location.protocol.startsWith('http')) {
+    where.textContent = '這台開的是 ' + location.origin + '。和其他裝置一起用請開 https://corgihere.ddns.net/ 。';
+    return;
+  }
+  where.textContent = '這是直接開啟的檔案。請改開 https://corgihere.ddns.net/ 。';
 }
 
 function init() {
@@ -1601,10 +1644,13 @@ function init() {
     if (document.hidden) return;
     render();
     pullAndMerge();
+    watchVersion();
   });
   setInterval(() => render(), 60000);
   setInterval(() => { if (!document.hidden) pullAndMerge(); }, 20000);
+  setInterval(() => { if (!document.hidden) watchVersion(); }, 60000);
   pullAndMerge();
+  watchVersion();
 }
 
 init();
