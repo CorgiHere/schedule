@@ -1,7 +1,7 @@
 'use strict';
 
 const KEY = 'corgihere.schedule.v1';
-const SYNC_URL = 'https://api.restful-api.dev/objects/ff808181a09d98f701a17ac0767e1d47';
+const SYNC_URL = 'https://crudcrud.com/api/4e3c069004d74b328917de3bf884bf9b/state/6adff68b419cd403e8b1dba4';
 
 function stamp() {
   return Math.floor(Date.now() / 1000);
@@ -90,7 +90,7 @@ let calYear = calNow.getFullYear();
 let calMonth = calNow.getMonth();
 
 function loadState() {
-  const empty = { done: {}, notes: {}, custom: [], added: [], removed: [], colors: {}, profiles: {}, edits: {}, theme: null, hideDone: false, updatedAt: 0 };
+  const empty = { done: {}, notes: {}, custom: [], added: [], removed: [], hidden: [], colors: {}, profiles: {}, edits: {}, theme: null, hideDone: false, updatedAt: 0 };
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || '{}');
     const removed = sanitizeRemoved(raw.removed);
@@ -107,6 +107,7 @@ function loadState() {
       colors,
       profiles,
       edits: sanitizeEdits(raw.edits, ids),
+      hidden: sanitizeHidden(raw.hidden),
       theme: raw.theme === 'dark' || raw.theme === 'light' ? raw.theme : null,
       hideDone: !!raw.hideDone,
       updatedAt: safeStamp(raw.updatedAt),
@@ -140,6 +141,7 @@ function snapshotFrom(raw) {
     colors: sanitizeColors(source.colors),
     profiles: sanitizeProfiles(source.profiles),
     edits: sanitizeEdits(source.edits, ids),
+    hidden: sanitizeHidden(source.hidden),
     theme: source.theme === 'dark' || source.theme === 'light' ? source.theme : null,
     hideDone: !!source.hideDone,
     updatedAt: safeStamp(source.updatedAt),
@@ -153,6 +155,7 @@ function stateWeight(snapshot) {
     + snapshot.added.length
     + snapshot.removed.length
     + Object.keys(snapshot.edits).length
+    + snapshot.hidden.length
     + Object.keys(snapshot.profiles).length
     + Object.keys(snapshot.colors).length;
 }
@@ -167,6 +170,7 @@ function payloadFromState() {
     colors: state.colors,
     profiles: state.profiles,
     edits: state.edits,
+    hidden: state.hidden,
     theme: state.theme,
     hideDone: state.hideDone,
     updatedAt: state.updatedAt || 0,
@@ -178,15 +182,10 @@ function setSyncStatus(text) {
   if (el) el.textContent = text;
 }
 
-function remoteSnapshot(raw) {
-  if (!raw || !raw.data || typeof raw.data !== 'object') return snapshotFrom({});
-  return snapshotFrom(raw.data);
-}
-
 async function readRemote() {
   const res = await fetch(SYNC_URL, { cache: 'no-store' });
   if (!res.ok) throw new Error('status');
-  return remoteSnapshot(await res.json());
+  return snapshotFrom(await res.json());
 }
 
 async function writeRemote() {
@@ -194,7 +193,7 @@ async function writeRemote() {
     method: 'PUT',
     cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'corgi-schedule', data: payloadFromState() }),
+    body: JSON.stringify(payloadFromState()),
   });
   if (!res.ok) throw new Error('status');
   lastPushedAt = state.updatedAt || 0;
@@ -210,6 +209,7 @@ function applyRemote(snapshot) {
   state.colors = snapshot.colors;
   state.profiles = snapshot.profiles;
   state.edits = snapshot.edits;
+  state.hidden = snapshot.hidden;
   state.theme = snapshot.theme;
   state.hideDone = snapshot.hideDone;
   state.updatedAt = snapshot.updatedAt;
@@ -298,6 +298,12 @@ async function pullAndMerge() {
 
 function validColor(value) {
   return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : '';
+}
+
+function sanitizeHidden(list) {
+  if (!Array.isArray(list)) return [];
+  const known = new Set(BASE.map((event) => event.id));
+  return [...new Set(list.filter((id) => known.has(id)))];
 }
 
 function sanitizeRemoved(list) {
@@ -493,7 +499,8 @@ function courseLabel(course) {
 }
 
 function allEvents() {
-  const base = BASE.map((event) => {
+  const hidden = new Set(state.hidden);
+  const base = BASE.filter((event) => !hidden.has(event.id)).map((event) => {
     const edit = state.edits[event.id];
     const course = edit ? (edit.course && courseById(edit.course) ? edit.course : '') : event.course;
     return {
@@ -746,7 +753,7 @@ function itemHTML(event) {
   const showNote = printMode ? !!note : openNotes.has(event.id);
   const preview = !showNote && note ? '<p class="note-preview">' + esc(note) + '</p>' : '';
   const editor = '<div class="note"' + (showNote ? '' : ' hidden') + '><label class="sr-only" for="note-' + esc(event.id) + '">備註</label><textarea id="note-' + esc(event.id) + '" data-id="' + esc(event.id) + '" maxlength="2000" placeholder="備註">' + esc(note) + '</textarea></div>';
-  const remove = event.custom ? '<button type="button" class="mini" data-action="delete">刪除</button>' : '';
+  const remove = '<button type="button" class="mini" data-action="delete">刪除</button>';
   const noted = !!note.trim();
   const tools = '<div class="item-tools"><label class="tick"><input type="checkbox" data-action="toggle"' + (done ? ' checked' : '') + ' aria-label="' + (done ? '已完成' : '完成') + '"></label><button type="button" class="icon-btn note-btn' + (noted ? ' is-on' : '') + '" data-action="note" aria-label="備註" aria-expanded="' + showNote + '" title="備註">' + NOTE_ICON + '</button></div>';
   const loose = !course && event.custom ? '<span class="meta">未指定</span>' : '';
@@ -1243,7 +1250,14 @@ function onListClick(event) {
   }
 
   if (action === 'delete-confirm') {
-    state.custom = state.custom.filter((item) => item.id !== id);
+    if (state.custom.some((item) => item.id === id)) {
+      state.custom = state.custom.filter((item) => item.id !== id);
+    } else if (BASE.some((item) => item.id === id)) {
+      if (!state.hidden.includes(id)) state.hidden.push(id);
+      delete state.edits[id];
+    } else {
+      return;
+    }
     delete state.done[id];
     delete state.notes[id];
     openNotes.delete(id);
@@ -1273,6 +1287,7 @@ function exportBackup() {
     colors: state.colors,
     profiles: state.profiles,
     edits: state.edits,
+    hidden: state.hidden,
     theme: state.theme,
     hideDone: state.hideDone,
   };
@@ -1304,6 +1319,7 @@ function importBackup(file) {
       state.profiles = sanitizeProfiles(data.profiles);
       state.custom = sanitizeCustom(data.custom || [], courseIdSet(state.removed, state.added));
       state.edits = sanitizeEdits(data.edits, courseIdSet(state.removed, state.added));
+      state.hidden = sanitizeHidden(data.hidden);
       state.hideDone = !!data.hideDone;
       if (data.theme === 'dark' || data.theme === 'light') state.theme = data.theme;
       saveState();
